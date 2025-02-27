@@ -1,0 +1,62 @@
+version: '3'
+
+services:
+  # MLflow 서버
+  mlflow-server:
+    image: ghcr.io/mlflow/mlflow
+    container_name: mlflow-server
+    ports:
+      - "5000:5000"
+    command: mlflow server --host 0.0.0.0
+    networks:
+      - mlflow-network
+    volumes:
+      - mlflow-data:/mlruns
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # FastAPI 서버
+  fastapi-mlflow-server:
+    build:
+      context: ./fastapi
+      dockerfile: Dockerfile
+    container_name: mlflow-api
+    ports:
+      - "8000:8000"
+    networks:
+      - mlflow-network
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 모델 학습 및 등록 서비스
+  model-trainer:
+    build:
+      context: ./regression
+      dockerfile: Dockerfile
+    container_name: model-trainer
+    networks:
+      - mlflow-network
+    depends_on:
+      mlflow-server:
+        condition: service_healthy
+    volumes:
+      - mlflow-data:/home/appuser/mlflow
+
+networks:
+  mlflow-network:
+    name: mlflow-network
+
+volumes:
+  mlflow-data:
